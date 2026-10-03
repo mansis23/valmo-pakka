@@ -14,16 +14,60 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from pakka import flow
-from pakka.data_gen import ASSUMPTIONS, TARGETS, CATEGORIES, generate
-from pakka.scorecard import FEATURES, NO_HIST, RULES_V0, Scorecard, bin_frame, train_all, SPLIT_DATE
+from pakka.data_gen import ASSUMPTIONS, CATEGORIES, generate
+from pakka.scorecard import FEATURES, Scorecard, train_all
 
 st.set_page_config(page_title="Valmo Pakka · RTO scorecard", page_icon="📦", layout="wide")
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data" / "valmo_synthetic_orders.csv.gz"
-ACCENT, RED, AMBER, GREEN, GREY = "#1F5F8B", "#C0392B", "#C27C0E", "#2F7D4A", "#8A929C"
+INK, ACCENT, RED, AMBER, GREEN, GREY = "#14283A", "#1F5F8B", "#C0392B", "#C27C0E", "#2F7D4A", "#8A929C"
 MODEL_COLORS = {"Rules v0": AMBER, "Scorecard": ACCENT, "Gradient boosting": "#7B4FA0", "Truth (hidden)": GREY}
 RTO_LOSS = 170
+
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap');
+html, body, [class*="css"], .stMarkdown, p, li, label { font-family: 'DM Sans', system-ui, sans-serif; }
+h1, h2, h3, h4 { font-family: 'Sora', 'DM Sans', sans-serif !important; letter-spacing: -0.01em; }
+.block-container { padding-top: 3.6rem; max-width: 1280px; }
+.hero { background: #14283A; color: #EEF3F7; border-radius: 16px; padding: 22px 28px; display: flex; flex-wrap: wrap;
+        justify-content: space-between; align-items: flex-end; gap: 14px; margin-bottom: 14px; }
+.hero .eyebrow { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #9FB6C9; font-weight: 700; }
+.hero h1 { color: #FFFFFF !important; font-size: 40px; margin: 2px 0 4px; padding: 0; }
+.hero h1 span { color: #F2B04B !important; }
+.hero p { margin: 0; color: #C9D6E1; max-width: 62ch; }
+.hero .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.hero .chips span { border: 1px solid #2F4A61; background: #1B3550; color: #DCE6EE; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; }
+.stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 1px solid #DCE0D8; }
+.stTabs [data-baseweb="tab"] { padding: 10px 16px; border-radius: 10px 10px 0 0; font-weight: 600; }
+.stTabs [aria-selected="true"] { background: #FFFFFF; }
+[data-testid="stMetric"] { background: #FFFFFF; border: 1px solid #E1E4DC; border-radius: 12px; padding: 12px 16px; }
+[data-testid="stMetricValue"] { font-family: 'Sora', sans-serif; }
+[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 14px !important; }
+.sectionlabel { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: #5B6572; font-weight: 700; margin: 4px 0 6px; }
+.scorebox { display: flex; gap: 22px; align-items: center; background: #FFFFFF; border: 1px solid #E1E4DC; border-radius: 16px; padding: 18px 22px; }
+.scorebox .big { font-family: 'Sora', sans-serif; font-size: 46px; font-weight: 700; line-height: 1; color: #14283A; }
+.scorebox .big small { font-size: 18px; color: #8A929C; font-weight: 600; }
+.scorebox .lbl { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: #5B6572; font-weight: 700; }
+.scorebox .p { margin-top: 6px; color: #2B3540; }
+.pill { display: inline-block; color: #FFFFFF; font-weight: 700; padding: 5px 12px; border-radius: 999px; font-size: 13px; margin-top: 10px; }
+.muted { color: #5B6572; font-size: 13px; margin-left: 8px; }
+.next { background: #FFFFFF; border: 1px solid #E1E4DC; border-left: 5px solid var(--c); border-radius: 12px; padding: 14px 18px; margin-top: 12px; }
+.next h4 { margin: 0 0 6px; font-size: 15px; }
+.next ol { margin: 0; padding-left: 20px; } .next li { margin: 3px 0; }
+.models { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.mcard { background: #FFFFFF; border: 1px solid #E1E4DC; border-radius: 14px; padding: 14px 16px; }
+.mcard.pick { border: 2px solid #1F5F8B; box-shadow: 0 4px 14px rgba(31, 95, 139, .12); }
+.mcard .tag { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: #5B6572; }
+.mcard.pick .tag { color: #1F5F8B; }
+.mcard .name { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 16px; margin: 2px 0 8px; color: #14283A; }
+.mcard .auc { font-family: 'Sora', sans-serif; font-size: 30px; font-weight: 700; color: #14283A; }
+.mcard .sub { font-size: 13px; color: #4A5562; }
+@media (max-width: 900px) { .models { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scorebox { flex-direction: column; align-items: flex-start; } }
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ data + models
@@ -43,34 +87,33 @@ df = load_data()
 R = load_models()
 SC: Scorecard = R["scorecard"]
 TR, TE = R["train"], R["test"]
-PTS_TR = SC.points(TR)
 PTS_TE = R["points_test"]
 
-# default tier cut-offs: top 10% of orders -> pre-confirmation, next 20% -> soft reminder (the deck's pilot design)
-_recent = SC.points(TR[TR.order_date >= TR.order_date.max() - pd.Timedelta(days=60)])   # cut-offs set on the latest 2 months
+# default cut-offs: riskiest ~10% -> pre-confirmation, next ~20% -> soft reminder (the pilot design)
+_recent = SC.points(TR[TR.order_date >= TR.order_date.max() - pd.Timedelta(days=60)])
 DEF_HI = int(np.round(np.quantile(_recent, 0.90)))
 DEF_LO = int(np.round(np.quantile(_recent, 0.70)))
 st.session_state.setdefault("cut_hi", DEF_HI)
 st.session_state.setdefault("cut_lo", DEF_LO)
+
+TIER_NAME = {"A": "Pre-confirmation", "B": "Soft reminder", "C": "No contact"}
+TIER_COLOR = {"A": RED, "B": AMBER, "C": GREEN}
 
 
 def tier_of(points: float) -> str:
     return "A" if points >= st.session_state.cut_hi else "B" if points >= st.session_state.cut_lo else "C"
 
 
-TIER_NAME = {"A": "Pre-confirmation", "B": "Soft reminder", "C": "No contact"}
-TIER_COLOR = {"A": RED, "B": AMBER, "C": GREEN}
-
-
-def badge(t):
-    return f"<span style='background:{TIER_COLOR[t]};color:white;padding:4px 10px;border-radius:6px;font-weight:600'>{TIER_NAME[t]}</span>"
+def ring(points: float, color: str) -> str:
+    r, c = 42, 2 * np.pi * 42
+    return (f"<svg width='112' height='112' viewBox='0 0 112 112'><circle cx='56' cy='56' r='{r}' fill='none' stroke='#ECEFE8' stroke-width='12'/>"
+            f"<circle cx='56' cy='56' r='{r}' fill='none' stroke='{color}' stroke-width='12' stroke-linecap='round' "
+            f"stroke-dasharray='{c * points / 100:.1f} {c:.1f}' transform='rotate(-90 56 56)'/>"
+            f"<text x='56' y='63' text-anchor='middle' font-family='Sora, sans-serif' font-size='24' font-weight='700' fill='#14283A'>{points:.0f}</text></svg>")
 
 
 # ------------------------------------------------------------------ sidebar
 with st.sidebar:
-    st.markdown("## 📦 Valmo Pakka")
-    st.caption("*Pehle Pakka, Phir Package.* Score every order, confirm the risky ones before pickup, "
-               "nudge them to prepaid, and make cancelling cheap and early.")
     st.markdown("### Tier cut-offs")
     st.slider("Pre-confirmation from (points)", 0, 100, key="cut_hi")
     st.slider("Soft reminder from (points)", 0, 100, key="cut_lo")
@@ -78,21 +121,21 @@ with st.sidebar:
         st.warning("The soft-reminder cut-off should be below the pre-confirmation cut-off.")
     a = (PTS_TE >= st.session_state.cut_hi).mean()
     b = ((PTS_TE >= st.session_state.cut_lo) & (PTS_TE < st.session_state.cut_hi)).mean()
-    st.markdown(f"- **Pre-confirmation:** {a:.0%} of orders · P(RTO) ≥ {SC.p_at(st.session_state.cut_hi):.0%}\n"
-                f"- **Soft reminder:** {b:.0%} · P(RTO) ≥ {SC.p_at(st.session_state.cut_lo):.0%}\n"
-                f"- **No contact:** {1 - a - b:.0%}")
-    st.caption(f"Defaults ({DEF_HI} / {DEF_LO}) are set on the latest two training months so the riskiest ~10% get pre-confirmation "
-               "and the next ~20% a reminder, as in the pilot plan. Shares above are on the held-out test months.")
+    st.markdown(f"- **Pre-confirmation:** {a:.0%} of orders\n- **Soft reminder:** {b:.0%}\n- **No contact:** {1 - a - b:.0%}")
+    st.caption(f"Defaults ({DEF_HI} / {DEF_LO}) send the riskiest ~10% to pre-confirmation and the next ~20% a reminder.")
     if st.button("Reset cut-offs"):
         st.session_state.cut_hi, st.session_state.cut_lo = DEF_HI, DEF_LO
         st.rerun()
     st.divider()
-    st.caption("All orders here are **synthetic**, calibrated to the case-pack figures (17% RTO, 20% COD, 5% prepaid). "
-               "No Valmo data is used. The *Real-data check* tab uses a public Amazon.in seller report.")
+    st.caption("All orders are synthetic, calibrated to the case-pack figures (17% RTO, 20% COD, 5% prepaid). No Valmo data is used.")
 
-st.title("Valmo Pakka · RTO risk scorecard")
-tabs = st.tabs(["① Score an order", "② How the scorecard works", "③ Validation & tiers", "④ Customer flow",
-                "⑤ Real-data check", "⑥ The dataset"])
+st.markdown("""<div class="hero"><div><div class="eyebrow">Meesho DICE S3 · Team Prod Gods, IIT Kanpur</div>
+<h1>Valmo <span>Pakka</span></h1><p>Pehle Pakka, Phir Package. Score every order at checkout, confirm the risky ones on WhatsApp
+before pickup, and make cancelling cheap and early.</p></div>
+<div class="chips"><span>WoE + logistic scorecard</span><span>2.1 lakh synthetic orders</span><span>Live WhatsApp flow mock</span></div></div>""",
+            unsafe_allow_html=True)
+
+tabs = st.tabs(["① Score an order", "② Model & validation", "③ Customer flow", "④ Real-data check", "⑤ The dataset"])
 
 # ================================================================== TAB 1 · SCORE
 PRESETS = {
@@ -108,8 +151,7 @@ PRESETS = {
 
 
 def apply_preset():
-    p = PRESETS[st.session_state.preset]
-    for k, v in p.items():
+    for k, v in PRESETS[st.session_state.preset].items():
         st.session_state["in_" + k] = v
 
 
@@ -122,7 +164,7 @@ with tabs[0]:
     left, right = st.columns([1, 1.15], gap="large")
     with left:
         with st.container(border=True):
-            st.markdown("**Customer history** · known from past orders on this phone number")
+            st.markdown('<div class="sectionlabel">Customer history</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             po = c1.number_input("Past orders", 0, 60, key="in_prior_orders")
             if po > 0:
@@ -137,7 +179,7 @@ with tabs[0]:
                 c2.caption("First order: no history yet. The scorecard treats this as its own risk group.")
                 pr, prf, ds, na = 0, 0, np.nan, True
         with st.container(border=True):
-            st.markdown("**Address & location**")
+            st.markdown('<div class="sectionlabel">Address & location</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             mp = c1.checkbox("Map pin dropped", key="in_pin")
             lm = c2.checkbox("Landmark-only address", key="in_landmark", help="No house or flat number, e.g. 'Mandir ke paas'")
@@ -148,7 +190,7 @@ with tabs[0]:
             dist = c1.slider("Distance to hub (km)", 0.5, 60.0, step=0.5, key="in_dist")
             prom = c2.slider("Promised delivery (days)", 2, 10, key="in_prom")
         with st.container(border=True):
-            st.markdown("**This order**")
+            st.markdown('<div class="sectionlabel">This order</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             cod = c1.toggle("Cash on delivery", key="in_cod")
             cat = c2.selectbox("Category", CATEGORIES, key="in_cat")
@@ -181,252 +223,157 @@ with tabs[0]:
     pct = (PTS_TE < pts).mean()
 
     with right:
-        with st.container(border=True):
-            m1, m2, m3 = st.columns([1, 1, 1.3])
-            m1.metric("Risk score", f"{pts:.0f} / 100")
-            m2.metric("P(RTO)", f"{p:.1%}", f"{(p - SC.base_rate) * 100:+.0f} pts vs avg", delta_color="inverse")
-            m3.markdown(f"<div style='margin-top:6px'>{badge(t)}</div><div style='font-size:13px;opacity:.75;margin-top:8px'>Riskier than {pct:.0%} of orders</div>",
-                        unsafe_allow_html=True)
-            if t == "A":
-                st.markdown(f"""**What happens:** WhatsApp within 15 minutes, before the seller packs: *Confirm / Fix address / Cancel*.
-On confirm, {'offer ₹%d back for paying by UPI, or a ₹%d token now with the rest on delivery' % (cashback, token) if cod and cashback else 'offer a ₹%d UPI token' % token if cod else 'no payment nudge (already prepaid)'}.
-No reply in 6 hours → IVR call. Still nothing → ship flagged *Unconfirmed*, and the rider calls first.""")
-            elif t == "B":
-                st.markdown(f"**What happens:** one WhatsApp reminder with a one-tap cancel link"
-                            f"{' and ₹%d back for paying by UPI' % cashback if cod and cashback else ''}. No reply needed; it ships as normal.")
-            else:
-                st.markdown("**What happens:** nothing. It ships as normal. Messaging low-risk orders adds friction without moving RTO.")
+        col = TIER_COLOR[t]
+        st.markdown(f"""<div class="scorebox">{ring(pts, col)}<div>
+<div class="lbl">Risk score</div><div class="big">{pts:.0f}<small> / 100</small></div>
+<div class="p">Chance of RTO <b>{p:.1%}</b> · {p / SC.base_rate:.1f}× the average order</div>
+<span class="pill" style="background:{col}">{TIER_NAME[t]}</span><span class="muted">Riskier than {pct:.0%} of orders</span>
+</div></div>""", unsafe_allow_html=True)
+        if t == "A":
+            pay = (f"Offer ₹{cashback} back for paying by UPI, or a ₹{token} token now with the rest on delivery." if cod and cashback
+                   else f"Offer a ₹{token} UPI token, rest on delivery." if cod else "Already prepaid, so no payment nudge.")
+            steps = ["WhatsApp within 15 minutes, before the seller packs: <b>Confirm / Fix address / Cancel</b>.", pay,
+                     "No reply in 6 hours: IVR call. Still nothing: ship flagged <b>Unconfirmed</b>, and the rider calls first."]
+        elif t == "B":
+            steps = ["One WhatsApp reminder with a one-tap cancel link.",
+                     f"Offer ₹{cashback} back for paying by UPI." if cod and cashback else "No payment nudge.",
+                     "No reply needed. It ships as normal."]
+        else:
+            steps = ["No message. It ships as normal.", "Messaging low-risk orders adds friction without moving RTO."]
+        st.markdown(f'<div class="next" style="--c:{col}"><h4>What happens next</h4><ol>' + "".join(f"<li>{s}</li>" for s in steps) + "</ol></div>",
+                    unsafe_allow_html=True)
 
         expl = SC.explain(row)
-        neutral = expl[expl.points.abs() < 0.05]
         expl = expl[expl.points.abs() >= 0.05]
         base = SC.base_points()
         cum = base + np.concatenate([[0], np.cumsum(expl.points.values)])
         fig = go.Figure(go.Waterfall(
             orientation="h", measure=["absolute"] + ["relative"] * len(expl) + ["total"],
-            y=["Starting points"] + [f"{r.feature}: {r.bin}" for r in expl.itertuples()] + ["Risk score"],
+            y=["Average order"] + [f"{r.feature}: {r.bin}" for r in expl.itertuples()] + ["This order"],
             x=[base] + list(expl.points) + [0],
             text=[f"{base:.0f}"] + [f"{v:+.1f}" for v in expl.points] + [f"{pts:.0f}"], textposition="outside",
-            increasing=dict(marker_color=RED), decreasing=dict(marker_color=GREEN), totals=dict(marker_color=ACCENT),
-            connector=dict(line=dict(color="rgba(128,128,128,.4)")),
+            increasing=dict(marker_color=RED), decreasing=dict(marker_color=GREEN), totals=dict(marker_color=INK),
+            connector=dict(line=dict(color="rgba(128,128,128,.35)")),
         ))
-        fig.update_layout(title="Why this score: points from each feature", height=110 + 34 * (len(expl) + 2),
-                          yaxis=dict(autorange="reversed"), margin=dict(l=10, r=40, t=40, b=10), showlegend=False,
-                          xaxis=dict(title="Risk points (red adds risk, green removes it)", range=[max(-5, cum.min() - 12), min(115, cum.max() + 12)]))
+        fig.update_layout(title=dict(text="Why this score", font=dict(family="Sora", size=16)), height=120 + 34 * (len(expl) + 2),
+                          yaxis=dict(autorange="reversed"), margin=dict(l=10, r=40, t=46, b=10), showlegend=False,
+                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                          xaxis=dict(title="Risk points (red adds risk, green removes it)", range=[max(-5, cum.min() - 12), min(115, cum.max() + 12)],
+                                     gridcolor="#E6E8E1"))
         st.plotly_chart(fig, width="stretch")
-        if len(neutral):
-            st.caption("No effect for this order: " + ", ".join(neutral.feature) + " (first order, so history features are neutral).")
-
-        with st.container(border=True):
-            st.markdown("**Prepaid nudge: how much can Valmo afford?**")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("P(RTO) as COD", f"{p_cod:.1%}")
-            c2.metric("P(RTO) if prepaid", f"{p_pre:.1%}")
-            c3.metric("Break-even incentive", f"₹{cap:.0f}")
-            st.caption(f"Switching this order to prepaid lowers its RTO chance by {(p_cod - p_pre) * 100:.1f} points, worth ₹{cap:.0f} "
-                       f"at ₹170 per RTO. That's the most a cashback can cost before Valmo loses money. Riskier orders justify bigger "
-                       f"nudges; a flat ₹50-100 discount doesn't pay. Caveat: customers who accept are probably safer than average.")
 
     st.session_state.order_ctx = dict(
         id="#MSH-48213", name="Priya", item=("Cotton kurta, size M" + (" + L" if multi else "")) if cat == "Apparel" else cat,
         value=int(val), cod=bool(cod), addr=("Hanuman Mandir ke paas, Kalyanpur, Kanpur" if lm else "H.No. 117/42, Gali 3, Kalyanpur, Kanpur"),
         p=p, p_prepaid=p_pre, points=pts, tier=t, tier_label=TIER_NAME[t], cashback=cashback if cod else 0, token=token if cod else 0)
 
-# ================================================================== TAB 2 · METHOD
+# ================================================================== TAB 2 · MODEL & VALIDATION
 with tabs[1]:
-    st.markdown("Rules → **statistical scorecard** → ML. The scorecard is the middle step: the data sets how much each "
-                "factor matters, but every point can still be read out to an ops manager.")
-
-    st.subheader("Step 1 · Historical orders with a known outcome")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Training orders", f"{len(TR):,}", "Oct 2025 – Jun 2026", delta_color="off")
-    c2.metric("Test orders (held out)", f"{len(TE):,}", "Jul – Sep 2026", delta_color="off")
-    c3.metric("RTO rate (train)", f"{TR.rto.mean():.1%}")
-    c4.metric("First orders (no history)", f"{(TR.prior_orders == 0).mean():.0%}")
-    st.caption("Target: **rto = 1** if the parcel came back for any reason. Every history feature is point-in-time: an order only sees "
-               "orders placed before it, so nothing from the future leaks in. We train on the first 9 months and test on the last 3, "
-               "the way a model is checked before it goes live.")
-
-    st.subheader("Steps 2-3 · Bin every feature and measure its Weight of Evidence")
-    st.latex(r"WoE_i=\ln\left(\frac{\%\ \text{non-RTO orders in bin } i}{\%\ \text{RTO orders in bin } i}\right)\qquad "
-             r"IV=\sum_i(\%\text{non-RTO}_i-\%\text{RTO}_i)\cdot WoE_i")
-    keys = list(FEATURES)
-    pick = st.selectbox("Feature", keys, format_func=lambda k: f"{FEATURES[k]['label']}  (IV {SC.iv[k]:.3f})",
-                        index=keys.index("prior_cod_refusals"))
-    t = SC.woe[pick].copy()
-    t["points"] = [SC.B * SC.coef[pick] * w for w in t.woe] if pick in SC.kept else np.nan
-    c1, c2 = st.columns([1.1, 1])
-    with c1:
-        fig = go.Figure(go.Bar(x=t.bin, y=t.rate, marker_color=[RED if w < 0 else GREEN for w in t.woe],
-                               text=[f"{v:.1%}" for v in t.rate], textposition="outside",
-                               hovertemplate="%{x}<br>RTO rate %{y:.1%}<extra></extra>"))
-        fig.add_hline(y=SC.base_rate, line_dash="dash", line_color=GREY, annotation_text=f"average {SC.base_rate:.1%}")
-        fig.update_layout(title=f"RTO rate by bin · {FEATURES[pick]['label']}", yaxis_tickformat=".0%", height=340,
-                          margin=dict(l=10, r=10, t=40, b=10))
-        st.plotly_chart(fig, width="stretch")
-    with c2:
-        st.dataframe(t[["bin", "n", "rto", "rate", "woe", "iv", "points"]].rename(columns={
-            "bin": "Bin", "n": "Orders", "rto": "RTOs", "rate": "RTO rate", "woe": "WoE", "iv": "IV part", "points": "Points"}),
-            hide_index=True, width="stretch",
-            column_config={"RTO rate": st.column_config.NumberColumn(format="percent"),
-                           "WoE": st.column_config.NumberColumn(format="%.3f"), "IV part": st.column_config.NumberColumn(format="%.4f"),
-                           "Points": st.column_config.NumberColumn(format="%+.1f")})
-        if pick in ("prior_rto_rate", "prior_cod_refusals", "days_since_last", "is_new_address"):
-            st.caption("First orders get WoE 0 here on purpose. 'Is this a first order' is counted once, in *Past orders*, "
-                       "so this feature only separates returning customers.")
-        if pick not in SC.kept:
-            st.warning(f"Not in the final model: {SC.dropped.get(pick, '')}.")
-
-    st.subheader("Feature selection")
-    iv = pd.DataFrame([{"Feature": FEATURES[k]["label"], "IV": SC.iv[k],
-                        "Status": "In model" if k in SC.kept else "Dropped",
-                        "Why": "" if k in SC.kept else SC.dropped.get(k, "")} for k in FEATURES]).sort_values("IV")
-    c1, c2 = st.columns([1, 1.1])
-    with c1:
-        fig = go.Figure(go.Bar(y=iv.Feature, x=iv.IV, orientation="h",
-                               marker_color=[ACCENT if s == "In model" else GREY for s in iv.Status],
-                               text=[f"{v:.3f}" for v in iv.IV], textposition="outside"))
-        fig.add_vline(x=0.02, line_dash="dash", line_color=RED, annotation_text="0.02 cut-off", annotation_position="bottom right")
-        fig.update_layout(title="Information Value (blue = kept)", height=520, margin=dict(l=10, r=30, t=40, b=10), xaxis_title="IV")
-        st.plotly_chart(fig, width="stretch")
-    with c2:
-        st.markdown("Three filters, in order:\n1. **IV ≥ 0.02.** Below that, a feature barely separates RTO from delivered.\n"
-                    "2. **No near-duplicates.** If two features move together (correlation > 0.7), keep the one with the higher IV.\n"
-                    "3. **Sensible sign.** Every coefficient must point the same way as its WoE. A feature that flips once the others are in adds nothing.")
-        st.dataframe(iv.sort_values("IV", ascending=False), hide_index=True, width="stretch",
-                     column_config={"IV": st.column_config.NumberColumn(format="%.3f")})
-
-    st.subheader("Step 4 · Logistic regression on the WoE values")
-    terms = " ".join(f"{'-' if SC.coef[k] < 0 else '+'} {abs(SC.coef[k]):.3f}\\,WoE_{{\\text{{{FEATURES[k]['label'].split()[0] + ('' if len(FEATURES[k]['label'].split()) == 1 else ' ' + FEATURES[k]['label'].split()[1])}}}}}" for k in SC.kept)
-    st.latex(r"\text{logit}\,P(RTO) = " + f"{SC.intercept:.3f}" + r"\ " + terms)
-    st.caption("Coefficients are negative because WoE is ln(non-RTO ÷ RTO): a risky bin has negative WoE, which pushes P(RTO) up.")
-
-    st.subheader("Step 5 · Turn the probability into 0-100 risk points")
-    st.latex(r"\text{Risk points} = A + B\cdot\text{logit}\,P \qquad 0\text{ points}=P\ %d\%%,\quad 100\text{ points}=P\ %d\%%" % (SC.P_LO * 100, SC.P_HI * 100))
-    st.markdown(f"Because the scale is linear in log-odds, **each feature's points simply add up**: start at {SC.base_points():.0f}, then add or subtract the points for "
-                "each bin the order falls in. That's what the waterfall on tab ① shows. The table below *is* the scorecard: printable, explainable, and "
-                "editable by ops without retraining.")
-    c1, c2 = st.columns([1.2, 1])
-    with c1:
-        ptab = SC.points_table()
-        st.dataframe(ptab.rename(columns={"feature": "Feature", "bin": "Bin", "orders": "Orders", "rto_rate": "RTO rate", "woe": "WoE", "points": "Points"}),
-                     hide_index=True, width="stretch", height=520,
-                     column_config={"RTO rate": st.column_config.NumberColumn(format="percent"),
-                                    "WoE": st.column_config.NumberColumn(format="%.3f"),
-                                    "Points": st.column_config.NumberColumn(format="%+.1f")})
-        st.download_button("Download the scorecard (CSV)", ptab.to_csv(index=False).encode(), "valmo_pakka_scorecard.csv", "text/csv")
-    with c2:
-        xs = np.arange(0, 101)
-        fig = go.Figure()
-        for lo, hi, colr, name in ((0, st.session_state.cut_lo, GREEN, "No contact"), (st.session_state.cut_lo, st.session_state.cut_hi, AMBER, "Soft reminder"),
-                                   (st.session_state.cut_hi, 100, RED, "Pre-confirmation")):
-            fig.add_vrect(x0=lo, x1=hi, fillcolor=colr, opacity=0.12, line_width=0, annotation_text=name, annotation_position="top left")
-        fig.add_trace(go.Scatter(x=xs, y=SC.p_at(xs), line=dict(color=ACCENT, width=2.5), hovertemplate="%{x} points → P %{y:.1%}<extra></extra>"))
-        fig.update_layout(title="Points → probability of RTO", xaxis_title="Risk points", yaxis_tickformat=".0%", height=360,
-                          margin=dict(l=10, r=10, t=40, b=10), showlegend=False)
-        st.plotly_chart(fig, width="stretch")
-        st.caption(f"Why not fixed 0-30 / 30-60 / 60-100 tiers? With a 17% base rate, about {(PTS_TE >= 30).mean():.0%} of orders score above 30. "
-                   "So the cut-offs are set by capacity instead: who can be messaged without annoying good customers. Adjust them in the sidebar.")
-
-# ================================================================== TAB 3 · VALIDATION
-with tabs[2]:
     E = R["eval"]
-    st.subheader("Which model? Rules vs scorecard vs gradient boosting")
-    comp = pd.DataFrame([{"Model": m, "AUC": e["auc"], "Gini": e["gini"], "KS": e["ks"], "Top-10% RTO rate": e["top10_rate"],
-                          "Lift (top 10%)": e["lift10"], "RTOs caught in top 10%": e["top10_capture"]} for m, e in E.items()])
-    comp["Explainable to ops?"] = ["Yes, but weights are guesses", "Yes, every point is traceable", "Needs SHAP; hard to audit", "n/a (the hidden truth)"]
-    st.dataframe(comp, hide_index=True, width="stretch",
-                 column_config={"AUC": st.column_config.NumberColumn(format="%.3f"), "Gini": st.column_config.NumberColumn(format="%.3f"),
-                                "KS": st.column_config.NumberColumn(format="%.3f"), "Top-10% RTO rate": st.column_config.NumberColumn(format="percent"),
-                                "Lift (top 10%)": st.column_config.NumberColumn(format="%.2f×"), "RTOs caught in top 10%": st.column_config.NumberColumn(format="percent")})
+    st.markdown('<div class="sectionlabel">Rules → scorecard → ML, tested on 3 held-out months</div>', unsafe_allow_html=True)
+    meta = [("Rules v0", "Baseline", "Hand-set points"), ("Scorecard", "Our pick", "WoE scorecard"),
+            ("Gradient boosting", "Challenger", "Gradient boosting"), ("Truth (hidden)", "Ceiling", "Hidden truth")]
+    st.markdown('<div class="models">' + "".join(
+        f'<div class="mcard{" pick" if m == "Scorecard" else ""}"><div class="tag">{tag}</div><div class="name">{name}</div>'
+        f'<div class="auc">{E[m]["auc"]:.3f}</div><div class="sub">AUC</div>'
+        f'<div class="sub" style="margin-top:8px"><b>{E[m]["top10_capture"]:.0%}</b> of RTOs caught by contacting the riskiest 10%</div></div>'
+        for m, tag, name in meta) + "</div>", unsafe_allow_html=True)
     gap = E["Gradient boosting"]["auc"] - E["Scorecard"]["auc"]
-    st.info(f"**Our pick: the scorecard.** It beats the hand-set rules by {E['Scorecard']['auc'] - E['Rules v0']['auc']:.3f} AUC "
-            f"and catches {E['Scorecard']['top10_capture']:.0%} of RTOs in the top 10% (rules: {E['Rules v0']['top10_capture']:.0%}). "
-            f"Gradient boosting adds only {gap:.3f} AUC on top. That isn't worth losing the ability to tell an ops manager, a seller or a "
-            f"customer *why* an order was flagged. It also isn't worth the harder monitoring, when the first pilot has to earn trust. "
-            f"Revisit ML once Valmo has a year of labelled confirmations and new signals (rider notes, address-graph confidence) that trees exploit better.")
-    st.caption("'Truth (hidden)' scores orders with the true probabilities the data was generated from. No model can beat it. "
-               "The gap to it is information that isn't in the features at all, such as a customer's mood on the day.")
+    st.info(f"**Why the scorecard:** it beats hand-set rules by {E['Scorecard']['auc'] - E['Rules v0']['auc']:.3f} AUC, and ML adds only {gap:.3f} more. "
+            "That isn't worth losing the ability to explain every flag to ops, sellers and customers.")
 
     c1, c2 = st.columns(2)
     with c1:
         fig = go.Figure()
         for m, e in E.items():
             g = e["gains"]
-            fig.add_trace(go.Scatter(x=g.coverage, y=g.captured, name=m, line=dict(color=MODEL_COLORS[m], width=2.5 if m == "Scorecard" else 1.6,
+            fig.add_trace(go.Scatter(x=g.coverage, y=g.captured, name=m, line=dict(color=MODEL_COLORS[m], width=3 if m == "Scorecard" else 1.6,
                                                                                      dash="dot" if m == "Truth (hidden)" else None),
                                      hovertemplate="Contact top %{x:.0%} → catch %{y:.1%} of RTOs<extra>" + m + "</extra>"))
         fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], name="Random", line=dict(color=GREY, width=1, dash="dash"), hoverinfo="skip"))
-        fig.update_layout(title="RTOs caught vs orders contacted (test months)", xaxis_tickformat=".0%", yaxis_tickformat=".0%",
-                          xaxis_title="Orders contacted, riskiest first", yaxis_title="RTOs caught", height=420, margin=dict(l=10, r=10, t=40, b=10),
-                          legend=dict(orientation="h", y=-0.25))
+        fig.update_layout(title=dict(text="RTOs caught vs orders contacted", font=dict(family="Sora", size=16)), xaxis_tickformat=".0%",
+                          yaxis_tickformat=".0%", xaxis_title="Orders contacted, riskiest first", yaxis_title="RTOs caught", height=420,
+                          margin=dict(l=10, r=10, t=46, b=10), legend=dict(orientation="h", y=-0.25), paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, width="stretch")
     with c2:
         cal = R["calibration"]
+        mx = cal.predicted.max() * 1.1
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=[0, cal.predicted.max() * 1.1], y=[0, cal.predicted.max() * 1.1], name="Perfect", line=dict(color=GREY, dash="dash"), hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=cal.predicted, y=cal.actual, mode="markers+lines", name="Scorecard", marker=dict(size=9, color=ACCENT),
-                                 hovertemplate="Predicted %{x:.1%}<br>Actual %{y:.1%}<extra></extra>"))
-        fig.update_layout(title="Calibration: is a 30% prediction really 30%?", xaxis_title="Predicted P(RTO), by decile",
-                          yaxis_title="Actual RTO rate", xaxis_tickformat=".0%", yaxis_tickformat=".0%", height=420,
-                          margin=dict(l=10, r=10, t=40, b=10), legend=dict(orientation="h", y=-0.25))
+        fig.add_trace(go.Scatter(x=[0, mx], y=[0, mx], name="Perfect", line=dict(color=GREY, dash="dash"), hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=cal.predicted, y=cal.actual, mode="markers+lines", name="Scorecard", line=dict(color=ACCENT, width=2.5),
+                                 marker=dict(size=9, color=ACCENT), hovertemplate="Predicted %{x:.1%}<br>Actual %{y:.1%}<extra></extra>"))
+        fig.update_layout(title=dict(text="Calibration: is a 30% prediction really 30%?", font=dict(family="Sora", size=16)),
+                          xaxis_title="Predicted P(RTO), by decile", yaxis_title="Actual RTO rate", xaxis_tickformat=".0%", yaxis_tickformat=".0%",
+                          height=420, margin=dict(l=10, r=10, t=46, b=10), legend=dict(orientation="h", y=-0.25), paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, width="stretch")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Scorecard AUC, train → test", f"{R['train_auc']['Scorecard']:.3f} → {E['Scorecard']['auc']:.3f}")
-    c2.metric("Brier score (lower is better)", f"{R['brier']['Scorecard']:.4f}", f"GBM {R['brier']['Gradient boosting']:.4f}", delta_color="off")
-    c3.metric("Score drift (PSI)", f"{R['psi']:.3f}", "under 0.1 stable · 0.1-0.25 watch", delta_color="off")
     hab = TE[TE.prior_orders > 0]
     hab_pts = SC.points(hab)
-    in_a = (hab_pts[hab._habitual_refuser.values == 1] >= st.session_state.cut_hi).mean()
-    c4.metric("Hidden habitual refusers sent to pre-confirmation", f"{in_a:.0%}",
-              f"vs {(hab_pts[hab._habitual_refuser.values == 0] >= st.session_state.cut_hi).mean():.0%} of other returning customers", delta_color="off")
-    st.caption("The last number is a recovery test. The data generator secretly marked 7% of customers as habitual refusers. "
-               "The model never sees that flag, only their past behaviour, so this shows how well it finds them.")
+    is_hab = hab._habitual_refuser.values == 1
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("AUC, train → test", f"{R['train_auc']['Scorecard']:.3f} → {E['Scorecard']['auc']:.3f}", "no overfitting", delta_color="off")
+    c2.metric("Brier score", f"{R['brier']['Scorecard']:.4f}", f"GBM {R['brier']['Gradient boosting']:.4f}", delta_color="off")
+    c3.metric("Score drift (PSI)", f"{R['psi']:.3f}", "under 0.1 stable · 0.1-0.25 watch", delta_color="off")
+    c4.metric("Hidden habitual refusers flagged", f"{(hab_pts[is_hab] >= st.session_state.cut_hi).mean():.0%}",
+              f"vs {(hab_pts[~is_hab] >= st.session_state.cut_hi).mean():.0%} of other returning customers", delta_color="off")
 
-    st.subheader("What the tiers would do")
-    pts = PTS_TE
+    st.markdown('<div class="sectionlabel" style="margin-top:18px">What the tiers would do</div>', unsafe_allow_html=True)
     y = TE.rto.values
-    cA, cB = pts >= st.session_state.cut_hi, (pts >= st.session_state.cut_lo) & (pts < st.session_state.cut_hi)
+    cA, cB = PTS_TE >= st.session_state.cut_hi, (PTS_TE >= st.session_state.cut_lo) & (PTS_TE < st.session_state.cut_hi)
     cC = ~(cA | cB)
     tiers = pd.DataFrame([{"Tier": TIER_NAME[k], "Share of orders": m.mean(), "RTO rate": y[m].mean() if m.any() else 0,
                            "Share of all RTOs": y[m].sum() / y.sum()} for k, m in (("A", cA), ("B", cB), ("C", cC))])
     st.dataframe(tiers, hide_index=True, width="stretch",
                  column_config={c: st.column_config.NumberColumn(format="percent") for c in ["Share of orders", "RTO rate", "Share of all RTOs"]})
 
-    st.markdown("**Economics.** Change the assumptions; nothing here is measured yet. The pilot measures it.")
-    e1, e2, e3, e4 = st.columns(4)
-    qA = e1.slider("RTOs prevented in pre-confirmation tier", 0, 60, 30, format="%d%%") / 100
-    qB = e2.slider("RTOs prevented in soft tier", 0, 30, 10, format="%d%%") / 100
-    val_saved = e3.select_slider("Value of one prevented RTO", [120, 170], value=120, format_func=lambda v: f"₹{v}")
-    ships = e4.number_input("Shipments a year (crore)", 10, 300, 160)
-    n = len(y)
-    prevented = qA * y[cA].sum() + qB * y[cB].sum()
-    msg_cost = cA.sum() * (0.13 + 0.35 * 0.25) + cB.sum() * 0.13
-    new_rto = (y.sum() - prevented) / n
-    per_order = (prevented * val_saved - msg_cost) / n
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("RTO rate", f"{new_rto:.1%}", f"{(new_rto - y.mean()) * 100:+.1f} pts", delta_color="inverse")
-    k2.metric("RTOs prevented", f"{prevented / y.sum():.1%} of all")
-    k3.metric("Messaging cost per order", f"₹{msg_cost / n:.3f}")
-    k4.metric("Net saving a year", f"₹{per_order * ships * 1e7 / 1e7:,.0f} cr")
-    st.caption(f"₹120 is the deck's conservative value (₹170 avoided minus ₹50 forward trip re-spent on a saved delivery). ₹170 applies to pre-pickup cancels. "
-               f"Messaging costs ₹0.13 per WhatsApp, plus an IVR call at ₹0.25 for the ~35% who don't reply. That's so cheap the cut-off is a "
-               f"customer-experience choice, not a cost one.")
+    with st.container(border=True):
+        st.markdown("**Economics.** These are assumptions; the pilot measures them.")
+        e1, e2, e3, e4 = st.columns(4)
+        qA = e1.slider("RTOs prevented, pre-confirmation tier", 0, 60, 30, format="%d%%") / 100
+        qB = e2.slider("RTOs prevented, soft tier", 0, 30, 10, format="%d%%") / 100
+        val_saved = e3.select_slider("Value of one prevented RTO", [120, 170], value=120, format_func=lambda v: f"₹{v}")
+        ships = e4.number_input("Shipments a year (crore)", 10, 300, 160)
+        n = len(y)
+        prevented = qA * y[cA].sum() + qB * y[cB].sum()
+        msg_cost = cA.sum() * (0.13 + 0.35 * 0.25) + cB.sum() * 0.13
+        new_rto = (y.sum() - prevented) / n
+        per_order = (prevented * val_saved - msg_cost) / n
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("RTO rate", f"{new_rto:.1%}", f"{(new_rto - y.mean()) * 100:+.1f} pts", delta_color="inverse")
+        k2.metric("RTOs prevented", f"{prevented / y.sum():.1%} of all")
+        k3.metric("Messaging cost per order", f"₹{msg_cost / n:.3f}")
+        k4.metric("Net saving a year", f"₹{per_order * ships:,.0f} cr")
 
-# ================================================================== TAB 4 · FLOW
-with tabs[3]:
+    with st.expander("See the scorecard itself (features, bins and points)"):
+        iv = pd.DataFrame([{"Feature": FEATURES[k]["label"], "IV": SC.iv[k], "In model": k in SC.kept} for k in FEATURES]).sort_values("IV")
+        c1, c2 = st.columns([1, 1.2])
+        with c1:
+            fig = go.Figure(go.Bar(y=iv.Feature, x=iv.IV, orientation="h", marker_color=[ACCENT if s else GREY for s in iv["In model"]],
+                                   text=[f"{v:.3f}" for v in iv.IV], textposition="outside"))
+            fig.add_vline(x=0.02, line_dash="dash", line_color=RED)
+            fig.update_layout(title=dict(text="Information Value (blue = in model)", font=dict(family="Sora", size=15)), height=500,
+                              margin=dict(l=10, r=30, t=46, b=10), paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, width="stretch")
+        with c2:
+            ptab = SC.points_table()
+            st.dataframe(ptab.rename(columns={"feature": "Feature", "bin": "Bin", "orders": "Orders", "rto_rate": "RTO rate", "woe": "WoE", "points": "Points"}),
+                         hide_index=True, width="stretch", height=460,
+                         column_config={"RTO rate": st.column_config.NumberColumn(format="percent"),
+                                        "WoE": st.column_config.NumberColumn(format="%.3f"),
+                                        "Points": st.column_config.NumberColumn(format="%+.1f")})
+            st.download_button("Download the scorecard (CSV)", ptab.to_csv(index=False).encode(), "valmo_pakka_scorecard.csv", "text/csv")
+
+# ================================================================== TAB 3 · FLOW
+with tabs[2]:
     ctx = st.session_state.order_ctx
     flow.render(ctx, ctx["tier"])
 
-# ================================================================== TAB 5 · REAL DATA
-with tabs[4]:
+# ================================================================== TAB 4 · REAL DATA
+with tabs[3]:
     J = json.loads((ROOT / "data" / "amazon_scorecard_results.json").read_text())
     te = J["test_eval"]
-    st.markdown(f"The same WoE + logistic method, run on **{J['rows_labelled']:,} real Indian e-commerce orders**: a public Amazon.in seller report "
-                f"(Mar-Jun 2022), trained on {J['train']['period']}, tested on {J['test']['period']}. "
-                "It checks that the method holds up on messy real data. It can't validate the Valmo model, because this file has no customer IDs "
-                "and no payment mode.")
+    st.markdown(f"The same WoE + logistic method on **{J['rows_labelled']:,} real Indian e-commerce orders** from a public Amazon.in seller report "
+                f"(trained {J['train']['period']}, tested {J['test']['period']}). It shows the method holds up on messy real data.")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Test AUC", f"{te['auc']:.3f}", f"95% range {te['auc_ci'][0]:.2f}-{te['auc_ci'][1]:.2f}", delta_color="off")
     c2.metric("KS", f"{te['ks']:.3f}")
@@ -438,27 +385,27 @@ with tabs[4]:
         fig = go.Figure(go.Bar(y=fv.label, x=fv.iv, orientation="h", marker_color=[ACCENT if k else GREY for k in fv.kept],
                                text=[f"{v:.3f}" for v in fv.iv], textposition="outside"))
         fig.add_vline(x=0.02, line_dash="dash", line_color=RED)
-        fig.update_layout(title="Information Value on real data (blue = kept)", height=360, margin=dict(l=10, r=30, t=40, b=10))
+        fig.update_layout(title=dict(text="Information Value on real data (blue = kept)", font=dict(family="Sora", size=15)), height=360,
+                          margin=dict(l=10, r=30, t=46, b=10), paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, width="stretch")
     with c2:
         dd = pd.DataFrame(te["dec"])
         fig = go.Figure()
         fig.add_trace(go.Bar(x=dd.d, y=dd.rto, name="Actual", marker_color=ACCENT))
-        fig.add_trace(go.Scatter(x=dd.d, y=dd.pred, name="Predicted", mode="markers", marker=dict(size=10, color="#333")))
+        fig.add_trace(go.Scatter(x=dd.d, y=dd.pred, name="Predicted", mode="markers", marker=dict(size=10, color=INK)))
         fig.add_hline(y=te["base"], line_dash="dash", line_color=GREY)
-        fig.update_layout(title="June 2022: actual vs predicted RTO by decile", xaxis_title="Decile (1 = riskiest)", yaxis_tickformat=".0%",
-                          height=360, margin=dict(l=10, r=10, t=40, b=10), legend=dict(orientation="h", y=-0.25))
+        fig.update_layout(title=dict(text="June 2022: actual vs predicted RTO by decile", font=dict(family="Sora", size=15)),
+                          xaxis_title="Decile (1 = riskiest)", yaxis_tickformat=".0%", height=360, margin=dict(l=10, r=10, t=46, b=10),
+                          legend=dict(orientation="h", y=-0.25), paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, width="stretch")
-    st.markdown("**What it shows:** only location carried signal (area RTO history and metro vs non-metro). Price, size, category and dates didn't. "
-                "The features that matter most in the synthetic Valmo model (past refusals, past RTO rate, COD) aren't in any public dataset. "
-                "**The method works on real orders; the signal it needs is in Valmo's order logs.**")
-    st.caption("Caveats: the file appears to be one apparel seller's account. Its RTO rate (6.8%) is far below Valmo's 17%. 'Returned to seller' may include "
-               "some post-delivery returns. Reproduce with scripts/amazon_scorecard.py.")
+    st.markdown("**What it shows:** only location carried signal here. This file has no customer history or payment mode, which are the strongest "
+                "features in the Valmo model. **The method works on real orders; the signal it needs is in Valmo's order logs.**")
+    st.caption("Caveats: one apparel seller's account, 6.8% RTO (far below Valmo's 17%), and 'Returned to seller' may include some post-delivery returns.")
 
-# ================================================================== TAB 6 · DATASET
-with tabs[5]:
+# ================================================================== TAB 5 · DATASET
+with tabs[4]:
     st.markdown(f"**{len(df):,} synthetic orders from {df.customer_id.nunique():,} customers in 1,200 pincodes, Oct 2025 – Sep 2026.** "
-                "The published numbers are hit exactly. Everything else is a stated assumption, listed below.")
+                "The published numbers are hit exactly. Everything else is a stated assumption.")
     rto_by = df.groupby("payment_mode").rto.mean()
     cs = df[df.rto == 1].rto_cause.value_counts(normalize=True)
     chk = pd.DataFrame([
@@ -469,31 +416,15 @@ with tabs[5]:
         ("Share: carrier issue", "5%", f"{cs['carrier']:.1%}")], columns=["Target", "Case pack / deck", "Synthetic data"])
     c1, c2 = st.columns([1, 1.4])
     with c1:
-        st.markdown("**Calibration check**")
+        st.markdown('<div class="sectionlabel">Calibration check</div>', unsafe_allow_html=True)
         st.dataframe(chk, hide_index=True, width="stretch")
     with c2:
-        st.markdown("**Assumptions (challenge any of these)**")
+        st.markdown('<div class="sectionlabel">Assumptions</div>', unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(ASSUMPTIONS, columns=["Area", "Assumption"]), hide_index=True, width="stretch", height=360)
-    st.markdown("**Data dictionary**")
-    dic = [
-        ("order_id / order_date / order_hour", "Order identifiers and timing"),
-        ("customer_id", "Phone-number-level customer key"),
-        ("pincode / pincode_tier", "Delivery pincode and Metro / Tier-2 / Tier-3"),
-        ("distance_to_hub_km / promised_delivery_days", "Last-mile distance and promised delivery time"),
-        ("payment_mode", "COD or Prepaid"),
-        ("category / size_variant_item / multiple_sizes_in_cart", "Cart contents"),
-        ("order_value / pincode_avg_order_value / value_to_pincode_aov", "Order value and how unusual it is for the area"),
-        ("is_new_address / map_pin_dropped / landmark_only_address", "Address quality at checkout"),
-        ("festival_sale", "Order placed during a sale peak"),
-        ("prior_orders / prior_rto / prior_delivered / prior_cod_refusals / prior_rto_rate", "Customer history, point-in-time"),
-        ("days_since_last_order / customer_tenure_days", "Customer recency and tenure"),
-        ("pincode_rto_rate", "Pincode's past RTO rate, point-in-time, smoothed toward 17%"),
-        ("rto / rto_cause", "Outcome (target) and cause"),
-        ("_true_p_rto / _habitual_refuser", "Hidden truth for the recovery test. Never used as features."),
-    ]
-    st.dataframe(pd.DataFrame(dic, columns=["Column(s)", "Meaning"]), hide_index=True, width="stretch")
-    st.markdown("**Preview**")
+    st.markdown('<div class="sectionlabel">Preview</div>', unsafe_allow_html=True)
     st.dataframe(df.head(300), hide_index=True, width="stretch", height=320)
+    st.caption("Columns starting with _ are the hidden truth used only for the recovery test. They are never model features.")
+
     @st.cache_data(show_spinner=False)
     def _csv_gz() -> bytes:
         import gzip
