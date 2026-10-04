@@ -310,6 +310,7 @@ with tabs[2]:
         f'<div class="auc">{E[m]["auc"]:.3f}</div><div class="sub">AUC</div>'
         f'<div class="sub" style="margin-top:8px"><b>{E[m]["top10_capture"]:.0%}</b> of RTOs caught by messaging the riskiest 10%</div></div>'
         for m, tag, name in meta) + "</div>", unsafe_allow_html=True)
+    st.caption("AUC = how often the model scores an order that came back above one that was delivered. 0.5 is a coin flip, 1.0 is perfect.")
     st.markdown(f"**Why the scorecard:** it beats simple rules by {E['Scorecard']['auc'] - E['Rules v0']['auc']:.3f} AUC, and machine learning adds only "
                 f"{E['Gradient boosting']['auc'] - E['Scorecard']['auc']:.3f} more, so we keep a model that can explain every flag to ops, sellers and customers. "
                 "'Best possible' scores orders with the true probabilities the data was generated from.")
