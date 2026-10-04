@@ -21,6 +21,12 @@ CSS = """
 .ladder div{border-radius:6px;padding:8px 4px;text-align:center;font-size:11.5px;border:2px solid transparent;background:rgba(128,128,128,.12)}
 .ladder div b{display:block;font-size:15px}
 .ladder div.hit{border-color:#1F5F8B;background:rgba(31,95,139,.15)}
+.st-key-flowbtns{margin-top:22px;padding:14px;border-radius:14px;background:#FFFFFF;border:1px solid #DCE0D8}
+.tapnote{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#5B6572;font-weight:700;margin-bottom:2px}
+.st-key-flowbtns button{min-height:54px;padding:6px 10px;border-radius:12px;border:2px solid #1E3A34;background:#E9F6EF;color:#1E3A34;box-shadow:0 2px 6px rgba(30,58,52,.12)}
+.st-key-flowbtns button p{font-size:15px !important;font-weight:700 !important;white-space:normal !important;line-height:1.25}
+.st-key-flowbtns button:hover{background:#1E3A34;color:#FFFFFF;border-color:#1E3A34}
+.st-key-flowbtns button:hover p{color:#FFFFFF}
 </style>
 """
 
@@ -103,7 +109,9 @@ def render(ctx: dict, default_tier: str):
                 html.append(f'<div class="bub {kind}">{f"<span class=tag>{tag}</span>" if tag else ""}{body}<span class="tm">{tm}{" ✓✓" if kind == "out" else ""}</span></div>')
         html.append("</div></div>")
         st.markdown("".join(html), unsafe_allow_html=True)
-        _buttons(f)
+        with st.container(key="flowbtns"):
+            st.markdown('<div class="tapnote">Tap what the customer does</div>', unsafe_allow_html=True)
+            _buttons(f)
     with right:
         with st.container(border=True):
             st.markdown(f"#### {f['title']}")
