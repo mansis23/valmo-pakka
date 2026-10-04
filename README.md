@@ -10,7 +10,7 @@ Team Prod Gods · IIT Kanpur · Meesho DICE S3 (Business track)
 |---|---|
 | 1. Score an order | Pick an example or edit an order. Get a 0-100 risk score, what happens next, and the top reasons pushing risk up or down |
 | 2. Customer flow | Clickable WhatsApp / IVR flow: Confirm, Fix address, Cancel with reason code, prepaid or partial-COD offer, no-reply fallback |
-| 3. How we know it works | RTOs caught vs orders messaged on 3 unseen months, why a scorecard over ML, the real-data check, and the dataset |
+| 3. How we know it works | Rules vs scorecard vs ML cards, RTOs caught vs orders messaged, calibration chart, health checks, the real-data check, and the dataset |
 
 ## Why a scorecard and not ML
 

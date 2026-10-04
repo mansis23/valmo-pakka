@@ -69,6 +69,15 @@ h1, h2, h3, h4 { font-family: 'Sora', 'DM Sans', sans-serif !important; letter-s
 .stat .v { font-family: 'Sora', sans-serif; font-size: 32px; font-weight: 700; color: #14283A; line-height: 1.1; }
 .stat .k { color: #3B4652; font-size: 14px; margin-top: 4px; }
 @media (max-width: 900px) { .stats, .why { grid-template-columns: 1fr; } .scorebox { flex-direction: column; align-items: flex-start; } }
+.models { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 6px 0 10px; }
+.mcard { background: #FFFFFF; border: 1px solid #E1E4DC; border-radius: 14px; padding: 14px 16px; }
+.mcard.pick { border: 2px solid #C0392B; box-shadow: 0 4px 14px rgba(192, 57, 43, .12); }
+.mcard .tag { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: #5B6572; }
+.mcard.pick .tag { color: #C0392B; }
+.mcard .name { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 16px; margin: 2px 0 8px; color: #14283A; }
+.mcard .auc { font-family: 'Sora', sans-serif; font-size: 30px; font-weight: 700; color: #14283A; }
+.mcard .sub { font-size: 13px; color: #4A5562; }
+@media (max-width: 900px) { .models { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -293,7 +302,19 @@ with tabs[2]:
 <div class="stat"><div class="v">{E['Scorecard']['top10_rate'] / E['Scorecard']['base']:.1f}×</div><div class="k">RTO rate in the confirm tier vs the average order</div></div>
 </div>""", unsafe_allow_html=True)
 
-    c1, c2 = st.columns([1.4, 1], gap="large")
+    st.markdown('<div class="sectionlabel" style="margin-top:10px">Rules → scorecard → ML</div>', unsafe_allow_html=True)
+    meta = [("Rules v0", "Baseline", "Simple rules"), ("Scorecard", "Our pick", "Pakka scorecard"),
+            ("Gradient boosting", "Challenger", "Machine learning"), ("Truth (hidden)", "Ceiling", "Best possible")]
+    st.markdown('<div class="models">' + "".join(
+        f'<div class="mcard{" pick" if m == "Scorecard" else ""}"><div class="tag">{tag}</div><div class="name">{name}</div>'
+        f'<div class="auc">{E[m]["auc"]:.3f}</div><div class="sub">AUC</div>'
+        f'<div class="sub" style="margin-top:8px"><b>{E[m]["top10_capture"]:.0%}</b> of RTOs caught by messaging the riskiest 10%</div></div>'
+        for m, tag, name in meta) + "</div>", unsafe_allow_html=True)
+    st.markdown(f"**Why the scorecard:** it beats simple rules by {E['Scorecard']['auc'] - E['Rules v0']['auc']:.3f} AUC, and machine learning adds only "
+                f"{E['Gradient boosting']['auc'] - E['Scorecard']['auc']:.3f} more, so we keep a model that can explain every flag to ops, sellers and customers. "
+                "'Best possible' scores orders with the true probabilities the data was generated from.")
+
+    c1, c2 = st.columns(2, gap="large")
     with c1:
         fig = go.Figure()
         for m, colr, w in (("Scorecard", RED, 3), ("Rules v0", AMBER, 1.8)):
@@ -308,13 +329,42 @@ with tabs[2]:
                           xaxis=dict(gridcolor="#E6E8E1"), yaxis=dict(gridcolor="#E6E8E1"))
         st.plotly_chart(fig, width="stretch")
     with c2:
-        st.markdown('<div class="sectionlabel">Why a scorecard, not ML</div>', unsafe_allow_html=True)
-        st.markdown(f"It beats hand-set rules (AUC **{E['Scorecard']['auc']:.3f}** vs {E['Rules v0']['auc']:.3f}). A machine-learning model adds only "
-                    f"**{E['Gradient boosting']['auc'] - E['Scorecard']['auc']:.3f}**, and the scorecard can explain every flag to ops, sellers and customers.")
-        st.markdown('<div class="sectionlabel" style="margin-top:14px">Checked on real orders</div>', unsafe_allow_html=True)
+        cal = R["calibration"]
+        mx = float(cal.predicted.max()) * 1.1
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=[0, mx], y=[0, mx], name="Perfect", line=dict(color=GREY, dash="dash"), hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=cal.predicted, y=cal.actual, mode="markers+lines", name="Pakka scorecard", line=dict(color=ACCENT, width=2.5),
+                                 marker=dict(size=9, color=ACCENT), hovertemplate="Predicted %{x:.1%}<br>Actual %{y:.1%}<extra></extra>"))
+        fig.update_layout(title=dict(text="Is a 30% prediction really 30%?", font=dict(family="Sora", size=16)),
+                          xaxis_title="Predicted chance of RTO (10 groups)", yaxis_title="Actual RTO rate", xaxis_tickformat=".0%",
+                          yaxis_tickformat=".0%", height=380, margin=dict(l=10, r=10, t=46, b=10), legend=dict(orientation="h", y=-0.28),
+                          paper_bgcolor="rgba(0,0,0,0)", xaxis=dict(gridcolor="#E6E8E1"), yaxis=dict(gridcolor="#E6E8E1"))
+        st.plotly_chart(fig, width="stretch")
+
+    st.markdown('<div class="sectionlabel">Health checks</div>', unsafe_allow_html=True)
+    hab = TE[TE.prior_orders > 0]
+    hab_pts = SC.points(hab)
+    is_hab = hab._habitual_refuser.values == 1
+    checks = [
+        (f"{R['train_auc']['Scorecard']:.3f} → {E['Scorecard']['auc']:.3f}", "AUC on training vs unseen months: no overfitting"),
+        (f"{R['brier']['Scorecard']:.3f}", f"Brier score, lower is better (ML: {R['brier']['Gradient boosting']:.3f}): equally well calibrated"),
+        (f"{R['psi']:.2f}", "Score drift over time (PSI): under 0.1 is stable, 0.1 to 0.25 worth watching"),
+        (f"{(hab_pts[is_hab] >= CUT_HI).mean():.0%} vs {(hab_pts[~is_hab] >= CUT_HI).mean():.0%}",
+         "hidden habitual refusers sent to confirmation, vs other repeat buyers"),
+    ]
+    st.markdown('<div class="stats" style="grid-template-columns:repeat(4,minmax(0,1fr))">' + "".join(
+        f'<div class="stat"><div class="v" style="font-size:24px">{v}</div><div class="k">{k}</div></div>' for v, k in checks) + "</div>",
+        unsafe_allow_html=True)
+    st.caption("The last check is a recovery test: the data generator secretly marked 7% of customers as habitual refusers. "
+               "The model never sees that flag, only their past behaviour.")
+
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        st.markdown('<div class="sectionlabel" style="margin-top:10px">Checked on real orders</div>', unsafe_allow_html=True)
         st.markdown(f"On **{J['rows_labelled']:,} real Amazon.in orders** the same method still ranks risk (AUC {J['test_eval']['auc']:.2f}), "
                     "but public data has no customer history or payment mode. Those are the strongest signals, and they're in Valmo's order logs.")
-        st.markdown('<div class="sectionlabel" style="margin-top:14px">About the data</div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="sectionlabel" style="margin-top:10px">About the data</div>', unsafe_allow_html=True)
         rto_by = df.groupby("payment_mode").rto.mean()
         st.markdown(f"**{len(df) / 1e5:.1f} lakh synthetic orders**, {df.customer_id.nunique():,} customers, 1,200 pincodes. Calibrated to the case pack: "
                     f"{df.rto.mean():.0%} RTO overall, {rto_by['COD']:.0%} COD, {rto_by['Prepaid']:.0%} prepaid. No Valmo data is used.")
